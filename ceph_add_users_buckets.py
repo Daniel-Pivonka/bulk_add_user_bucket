@@ -1,9 +1,9 @@
-#!/usr/bin/env python2
+#!/usr/bin/python
 
-from ansible.module_utils.basic import *
-from socket import error as socket_error
-import boto
-import radosgw
+# Copyright 2015 Daniel Pivonka <dpivonka@redhat.com>
+# Copyright 2018 Red Hat, Inc.
+#
+# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 
 ANSIBLE_METADATA = {
     'metadata_version': '1.1',
@@ -137,7 +137,7 @@ option:
                required: true
 
 
-requirements: ['radosgw']
+requirements: ['radosgw', 'boto']
 
 author:
   - 'Daniel Pivonka'
@@ -299,6 +299,11 @@ added_buckets:
 
 '''
 
+from ansible.module_utils.basic import AnsibleModule
+from socket import error as socket_error
+import boto
+import radosgw
+
 
 def create_users(rgw, users, result):
 
@@ -307,7 +312,7 @@ def create_users(rgw, users, result):
 
     for user in users:
 
-        #get info
+        # get info
         username = user['username']
         fullname = user['fullname']
         email = user['email']
@@ -337,21 +342,21 @@ def create_users(rgw, users, result):
             result['error_messages'].append(username + ' UserExists')
             failed_users.append(username)
         else:
-            #user doesnt exist create it
+            # user doesnt exist create it
             if email:
                 if autogenkey:
                     try:
                         rgw.create_user(username, fullname, email=email, key_type='s3',
-                                        generate_key = autogenkey,
-                                        max_buckets = maxbucket, suspended = suspend)
+                                        generate_key=autogenkey,
+                                        max_buckets=maxbucket, suspended=suspend)
                     except radosgw.exception.RadosGWAdminError as e:
                         result['error_messages'].append(username + ' ' + e.get_code())
                         fail_flag = True
                 else:
                     try:
                         rgw.create_user(username, fullname, email=email, key_type='s3',
-                                        access_key=accesskey, secret_key = secretkey,
-                                        max_buckets = maxbucket, suspended = suspend)
+                                        access_key=accesskey, secret_key=secretkey,
+                                        max_buckets=maxbucket, suspended=suspend)
                     except radosgw.exception.RadosGWAdminError as e:
                         result['error_messages'].append(username + ' ' + e.get_code())
                         fail_flag = True
@@ -359,20 +364,19 @@ def create_users(rgw, users, result):
                 if autogenkey:
                     try:
                         rgw.create_user(username, fullname, key_type='s3',
-                                        generate_key = autogenkey,
-                                        max_buckets = maxbucket, suspended = suspend)
+                                        generate_key=autogenkey,
+                                        max_buckets=maxbucket, suspended=suspend)
                     except radosgw.exception.RadosGWAdminError as e:
                         result['error_messages'].append(username + ' ' + e.get_code())
                         fail_flag = True
                 else:
                     try:
                         rgw.create_user(username, fullname, key_type='s3',
-                                        access_key=accesskey, secret_key = secretkey,
-                                        max_buckets = maxbucket, suspended = suspend)
+                                        access_key=accesskey, secret_key=secretkey,
+                                        max_buckets=maxbucket, suspended=suspend)
                     except radosgw.exception.RadosGWAdminError as e:
                         result['error_messages'].append(username + ' ' + e.get_code())
                         fail_flag = True
-
 
             if not fail_flag and userquota:
                 try:
@@ -403,8 +407,6 @@ def create_users(rgw, users, result):
         result['failed_users'] = ", ".join(failed_users)
 
 
-
-
 def create_buckets(rgw, buckets, result):
 
     added_buckets = []
@@ -417,10 +419,9 @@ def create_buckets(rgw, buckets, result):
         #  check if bucket exists
         try:
             bucket_info = rgw.get_bucket(bucket_name=bucket)
-        except:
+        except TypeError:
             # it doesnt exist
             bucket_info = None
-
 
         # if it exists add to failed list
         if bucket_info:
@@ -447,47 +448,44 @@ def create_buckets(rgw, buckets, result):
                                         uid=user)
                         added_buckets.append(bucket)
                     except radosgw.exception.RadosGWAdminError as e:
-                        result['error_messages'].append(bucket +
-                              e.get_code())
+                        result['error_messages'].append(bucket + e.get_code())
                         try:
                             rgw.delete_bucket(bucket, purge_objects=True)
-                        except:
+                        except radosgw.exception.RadosGWAdminError as e:
                             pass
                         failed_buckets.append(bucket)
 
                 else:
-                    #user doesnt exist cant be link delete bucket
+                    # user doesnt exist cant be link delete bucket
                     try:
                         rgw.delete_bucket(bucket, purge_objects=True)
-                    except:
+                    except radosgw.exception.RadosGWAdminError as e:
                         pass
                     failed_buckets.append(bucket)
-                    result['error_messages'].append(bucket +
-                          ' could not be linked' + ', NoSuchUser ' + user)
+                    result['error_messages'].append(bucket + ' could not be linked' + ', NoSuchUser ' + user)
 
             else:
                 # something went wrong
                 failed_buckets.append(bucket)
                 result['error_messages'].append(bucket + ' could not be created')
 
-
         result['added_buckets'] = ", ".join(added_buckets)
         result['failed_buckets'] = ", ".join(failed_buckets)
 
+
 def create_bucket(rgw, bucket):
-    conn = boto.connect_s3(
-                aws_access_key_id=rgw.provider._access_key,
-                aws_secret_access_key=rgw.provider._secret_key,
-                host=rgw._connection[0],
-                port=rgw.port,
-                is_secure=rgw.is_secure,
-                calling_format=boto.s3.connection.OrdinaryCallingFormat(),
-                )
+    conn = boto.connect_s3(aws_access_key_id=rgw.provider._access_key,
+                           aws_secret_access_key=rgw.provider._secret_key,
+                           host=rgw._connection[0],
+                           port=rgw.port,
+                           is_secure=rgw.is_secure,
+                           calling_format=boto.s3.connection.OrdinaryCallingFormat(),
+                           )
 
     try:
         conn.create_bucket(bucket_name=bucket)
         bucket_info = rgw.get_bucket(bucket_name=bucket)
-    except boto.exception.S3ResponseError as err:
+    except boto.exception.S3ResponseError:
         return None
     else:
         return bucket_info
@@ -495,36 +493,31 @@ def create_bucket(rgw, bucket):
 
 def main():
     # arguments/parameters that a user can pass to the module
-    fields = dict(
-        rgw_host=dict(type='str', required=True),
-        port=dict(type='int', required=True),
-        is_secure=dict(
-            type='bool',
-            required=False,
-            default=False),
-        admin_access_key=dict(type='str', required=True),
-        admin_secret_key=dict(type='str', required=True),
-        buckets=dict(type='list', required=False, elements='dict', options=dict(
-            bucket=dict(type='str', required=True),
-            user=dict(type='str', required=True))
-            ),
-        users=dict(type='list', required=False, elements='dict', options=dict(
-            username=dict(type='str', required=True),
-            fullname=dict(type='str', required=True),
-            email=dict(type='str', required=False),
-            maxbucket=dict(type='int', required=False, default=1000),
-            suspend=dict(type='bool', required=False, default=False),
-            autogenkey=dict(type='bool', required=False, default=True),
-            accesskey=dict(type='str', required=False),
-            secretkey=dict(type='str', required=False),
-            userquota=dict(type='bool', required=False, default=False),
-            usermaxsize=dict(type='str', required=False, default='-1'),
-            usermaxobjects=dict(type='int', required=False, default=-1),
-            bucketquota=dict(type='bool', required=False, default=False),
-            bucketmaxsize=dict(type='str', required=False, default='-1'),
-            bucketmaxobjects=dict(type='int', required=False, default=-1))
-            )
-        )
+    fields = dict(rgw_host=dict(type='str', required=True),
+                  port=dict(type='int', required=True),
+                  is_secure=dict(type='bool',
+                                 required=False,
+                                 default=False),
+                  admin_access_key=dict(type='str', required=True),
+                  admin_secret_key=dict(type='str', required=True),
+                  buckets=dict(type='list', required=False, elements='dict',
+                               options=dict(bucket=dict(type='str', required=True),
+                                            user=dict(type='str', required=True))),
+                  users=dict(type='list', required=False, elements='dict',
+                             options=dict(username=dict(type='str', required=True),
+                                          fullname=dict(type='str', required=True),
+                                          email=dict(type='str', required=False),
+                                          maxbucket=dict(type='int', required=False, default=1000),
+                                          suspend=dict(type='bool', required=False, default=False),
+                                          autogenkey=dict(type='bool', required=False, default=True),
+                                          accesskey=dict(type='str', required=False),
+                                          secretkey=dict(type='str', required=False),
+                                          userquota=dict(type='bool', required=False, default=False),
+                                          usermaxsize=dict(type='str', required=False, default='-1'),
+                                          usermaxobjects=dict(type='int', required=False, default=-1),
+                                          bucketquota=dict(type='bool', required=False, default=False),
+                                          bucketmaxsize=dict(type='str', required=False, default='-1'),
+                                          bucketmaxobjects=dict(type='int', required=False, default=-1))))
 
     # the AnsibleModule object
     module = AnsibleModule(argument_spec=fields,
@@ -550,14 +543,12 @@ def main():
     )
 
     # radosgw connection
-    rgw = radosgw.connection.RadosGWAdminConnection(
-            host=rgw_host,
-            port=port,
-            access_key=admin_access_key,
-            secret_key=admin_secret_key,
-            aws_signature='AWS4',
-            is_secure=is_secure)
-
+    rgw = radosgw.connection.RadosGWAdminConnection(host=rgw_host,
+                                                    port=port,
+                                                    access_key=admin_access_key,
+                                                    secret_key=admin_secret_key,
+                                                    aws_signature='AWS4',
+                                                    is_secure=is_secure)
 
     # test connection
     connected = True
